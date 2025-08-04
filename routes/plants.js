@@ -1,47 +1,48 @@
-const express = require("express")
-const multer = require("multer")
-const path = require("path")
-const fs = require("fs")
-const axios = require("axios")
-const auth = require("../middleware/auth")
-const { pool } = require("../config/database")
-const router = express.Router()
+const express = require("express") // Express кітапханасын қосу
+const multer = require("multer") // Multer кітапханасы (файлдарды жүктеу үшін)
+const path = require("path") // Файл жолдарымен жұмыс істеу үшін
+const fs = require("fs") // Файл жүйесімен жұмыс істеу үшін
+const axios = require("axios") // HTTP сұраныстарын жасау үшін
+const auth = require("../middleware/auth") // Қолданушы аутентификациясын тексеру үшін middleware
+const { pool } = require("../config/database") // PostgreSQL дерекқорымен жұмыс істеу үшін pool
+const router = express.Router() // Express маршруты
 
 // 📁 Файл сақтау конфигурациясы
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = "uploads/"
+    const uploadDir = "uploads/" // Файлдарды сақтау үшін папка
     if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true })
+      fs.mkdirSync(uploadDir, { recursive: true }) // Папканы жасау
     }
-    cb(null, uploadDir)
+    cb(null, uploadDir) // Файлды сақтау орны
   },
   filename: (req, file, cb) => {
+    // Бірегей атау жасау
     const uniqueName = `plant_${Date.now()}_${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`
-    cb(null, uniqueName)
+    cb(null, uniqueName) // Файл атауын жасау
   },
 })
 
 const fileFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith("image/")) {
+  if (file.mimetype.startsWith("image/")) { // Тек сурет файлдары қабылданады
     cb(null, true)
   } else {
-    cb(new Error("Тек сурет файлдары ғана қабылданады"), false)
+    cb(new Error("Тек сурет файлдары ғана қабылданады"), false) // Қате хабарламасы
   }
 }
 
 const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: fileFilter,
+  storage: storage, // Сақтау конфигурациясы
+  limits: { fileSize: 5 * 1024 * 1024 }, // Максимум 5MB файл өлшемі
+  fileFilter: fileFilter, // Файл фильтрі
 })
 
 // 🤖 Gemini AI арқылы өсімдікті анықтау
 async function analyzeWithGemini(base64Image, mimeType) {
-  const apiKey = process.env.GOOGLE_GEMINI_API_KEY
+  const apiKey = process.env.GOOGLE_GEMINI_API_KEY // API кілті
 
   if (!apiKey) {
-    console.error("❌ GOOGLE_GEMINI_API_KEY табылмады!")
+    console.error("❌ GOOGLE_GEMINI_API_KEY табылмады!") // Егер API кілті жоқ болса
     throw new Error("API кілті конфигурацияланбаған")
   }
 
@@ -73,30 +74,30 @@ async function analyzeWithGemini(base64Image, mimeType) {
     console.log("🤖 Gemini AI-ға сұраныс жіберілуде...")
 
     const response = await axios.post(url, requestBody, {
-      timeout: 30000,
+      timeout: 30000, // Тайм-аут
       headers: { "Content-Type": "application/json" },
     })
 
-    const responseText = response.data.candidates?.[0]?.content?.parts?.[0]?.text
+    const responseText = response.data.candidates?.[0]?.content?.parts?.[0]?.text // Жауап мәтіні
 
     if (!responseText) {
-      throw new Error("Gemini AI-дан жауап алынбады")
+      throw new Error("Gemini AI-дан жауап алынбады") // Егер жауап болмаса
     }
 
     console.log("🧠 Gemini жауабы:", responseText)
 
-    // JSON-ды талдау
+    // JSON форматын табу
     const jsonMatch = responseText.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
-      throw new Error("JSON форматы табылмады")
+      throw new Error("JSON форматы табылмады") // JSON форматы болмаса
     }
 
-    const plantData = JSON.parse(jsonMatch[0])
+    const plantData = JSON.parse(jsonMatch[0]) // JSON деректерін талдау
     return plantData
   } catch (error) {
     console.error("❌ Gemini AI қатесі:", error.message)
 
-    // Резервтік мәліметтер
+    // Резервтік деректер
     return {
       commonName: "Белгісіз өсімдік",
       scientificName: "Species unknown",
@@ -116,12 +117,12 @@ router.post("/identify", auth, upload.single("plantImage"), async (req, res) => 
 
   if (!req.file) {
     return res.status(400).json({
-      error: "Сурет файлы табылмады",
+      error: "Сурет файлы табылмады", // Сурет жүктелмеген жағдайда қате хабарламасы
     })
   }
 
-  const filePath = req.file.path
-  const imageUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`
+  const filePath = req.file.path // Файл жолы
+  const imageUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}` // Сурет URL
   const userId = req.user.id
 
   console.log("📁 Файл сақталды:", filePath)
@@ -146,7 +147,7 @@ router.post("/identify", auth, upload.single("plantImage"), async (req, res) => 
       RETURNING *
     `
 
-    const accuracy = Math.floor(Math.random() * 10) + 90 // 90-99%
+    const accuracy = Math.floor(Math.random() * 10) + 90 // 90-99% арасындағы дәлдік
 
     const values = [
       userId,

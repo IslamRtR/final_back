@@ -1,61 +1,62 @@
-const express = require("express")
-const multer = require("multer")
-const path = require("path")
-const fs = require("fs")
-const axios = require("axios")
-const auth = require("../middleware/auth")
-const { pool } = require("../config/database")
-const router = express.Router()
+const express = require("express") // Express кітапханасын қосу
+const multer = require("multer") // Multer кітапханасы (файлдарды жүктеу үшін)
+const path = require("path") // Файл жолдарын өңдеу үшін кітапхана
+const fs = require("fs") // Файл жүйесімен жұмыс істеу үшін
+const axios = require("axios") // HTTP сұраныстарын жасау үшін
+const auth = require("../middleware/auth") // Қолданушы аутентификациясын тексеру үшін middleware
+const { pool } = require("../config/database") // PostgreSQL дерекқорымен жұмыс істеу үшін pool
+const router = express.Router() // Express маршруты
 
 // 📁 Файл сақтау конфигурациясы
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = "uploads/"
+    const uploadDir = "uploads/" // Файлдарды сақтау орны
     if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true })
+      fs.mkdirSync(uploadDir, { recursive: true }) // Папка жоқ болса, жасалады
     }
-    cb(null, uploadDir)
+    cb(null, uploadDir) // Файлды жүктеу орны
   },
   filename: (req, file, cb) => {
     const uniqueName = `plant_${Date.now()}_${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`
-    cb(null, uniqueName)
+    cb(null, uniqueName) // Файл атының бірегей болуы үшін уақыт және кездейсоқ сан қосу
   },
 })
 
 // 📸 Файл фильтрі
 const fileFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith("image/")) {
+  if (file.mimetype.startsWith("image/")) { // Тек сурет файлдарын қабылдау
     cb(null, true)
   } else {
-    cb(new Error("Тек сурет файлдары ғана қабылданады"), false)
+    cb(new Error("Тек сурет файлдары ғана қабылданады"), false) // Қате, егер файл сурет болмаса
   }
 }
 
+// Multer конфигурациясы
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB
+    fileSize: 5 * 1024 * 1024, // Максимум файл өлшемі 5MB
   },
-  fileFilter: fileFilter,
+  fileFilter: fileFilter, // Файл фильтрі
 })
 
-// 🔄 Base64 түрлендіру
+// 🔄 Base64 түрлендіру функциясы
 function encodeImageToBase64(filePath) {
   try {
-    const imageBuffer = fs.readFileSync(filePath)
-    return imageBuffer.toString("base64")
+    const imageBuffer = fs.readFileSync(filePath) // Файлды оқып, буферге сақтау
+    return imageBuffer.toString("base64") // Base64 түрлендіру
   } catch (error) {
     console.error("Base64 түрлендіру қатесі:", error)
-    throw new Error("Суретті оқу мүмкін болмады")
+    throw new Error("Суретті оқу мүмкін болмады") // Қате болса, хабарлау
   }
 }
 
 // 🤖 Gemini AI арқылы өсімдікті анықтау
 async function analyzeWithGemini(base64Image, mimeType) {
-  const apiKey = process.env.GOOGLE_GEMINI_API_KEY
+  const apiKey = process.env.GOOGLE_GEMINI_API_KEY // API кілті
 
   if (!apiKey) {
-    throw new Error("Google Gemini API кілті табылмады")
+    throw new Error("Google Gemini API кілті табылмады") // API кілті жоқ болса қате
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
@@ -110,7 +111,7 @@ async function analyzeWithGemini(base64Image, mimeType) {
     const responseText = response.data.candidates?.[0]?.content?.parts?.[0]?.text
 
     if (!responseText) {
-      throw new Error("Gemini AI-дан жауап алынбады")
+      throw new Error("Gemini AI-дан жауап алынбады") // Егер жауап келмесе қате
     }
 
     console.log("🧠 Gemini жауабы:", responseText)
@@ -118,23 +119,19 @@ async function analyzeWithGemini(base64Image, mimeType) {
     // JSON-ды талдау
     const jsonMatch = responseText.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
-      throw new Error("JSON форматы табылмады")
+      throw new Error("JSON форматы табылмады") // JSON форматы болмағанда қате
     }
 
     const plantData = JSON.parse(jsonMatch[0])
 
     // Міндетті өрістерді тексеру
     if (!plantData.commonName || !plantData.scientificName) {
-      throw new Error("Өсімдік атауы табылмады")
+      throw new Error("Өсімдік атауы табылмады") // Өсімдік атауы жоқ болса қате
     }
 
     return plantData
   } catch (error) {
     console.error("Gemini AI қатесі:", error.message)
-
-    if (error.response) {
-      console.error("API жауабы:", error.response.data)
-    }
 
     // Резервтік мәліметтер
     return {
